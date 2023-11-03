@@ -18,7 +18,7 @@ start_time = datetime.datetime.now()
 
 
 short_url = 'https://sale.591.com.tw'
-sale_url ='https://sale.591.com.tw/?shType=list&regionid=8&section=104,103,105&price=500$_1500$&pattern=3,4&label=7,9'
+sale_url ='https://sale.591.com.tw/?shType=list&regionid=8&section=104,103,105&price=500$_2000$&pattern=3,4&label=7,9&houseage=0_15$'
 ###　section　西屯區:104 北屯:102 南屯:105
 ### label 車位:7 陽台:9
 
@@ -208,7 +208,8 @@ def house_search(short_url,sale_url) :
     soup = BeautifulSoup(web.page_source  , "html.parser")
     #soup = BeautifulSoup(res.text  , "html.parser")
 
-    for idx in  soup.find_all("div",{"class":"j-house houseList-item clearfix z-hastag"}) :
+    for idx in  soup.find_all("div",{"class":re.compile("^j-house houseList-item clearfix")}) :
+    #for idx in  soup.find_all("div",{"class":"j-house houseList-item clearfix z-hastag"}) :
       #print(idx.prettify())
 
       #price = idx.find("div",{"class":"houseList-item-price"})
@@ -350,6 +351,11 @@ def house_search(short_url,sale_url) :
          for item_price in item_div.find_all('div',{'class':re.compile('^houseList-item-unitprice')} ,limit=1):
              unitprice.append(item_price.get_text())
 
+         if len(price) != len(unitprice) : 
+            unitprice.append(None)
+
+ 
+
       ### tags
       for item_div in idx.find_all('div',{'class':re.compile('^houseList-item-tag-row')} ):
          itme_tags= []
@@ -417,7 +423,7 @@ today = datetime.date.today().strftime('%Y%m%d')
 ### delete Expired data or null 
 dicct = {"$or" : [  {"info_floor_exp":  {"$lte" : datetime.date.today().strftime('%Y%m%d') } }, {"info_floor_exp" : {"$eq": None } } ] }
 delete_many_mongo_db('591','sale_house',dicct)
-
+#total_Rows= 61
 
 while first_Row <  total_Rows:
 
@@ -433,6 +439,7 @@ while first_Row <  total_Rows:
 
      match_row = house_search(short_url,req_sale_url)
 
+  #print('row_data:',match_row)
   records = match_row.copy()
   
   if not records.empty : 
@@ -449,7 +456,7 @@ while first_Row <  total_Rows:
     try :
 
          """
-         db.sale_house.createIndex({houseList_item_attrs_shape:1,info_floor_layout:1,info_floor_addr_level:1,houseList_item_attrs_area:1,houseList_item_attrs_mainarea:1,houseList_item_attrs_houseage:1,houseList_item_community:1 ,houseList_item_section:1,houseList_item_address:1,price:1,unitprice:1},{ name : "key_duplicate" ,unique : true, background: true})
+         db.sale_house.createIndex({houseList_item_attrs_shape:1,info_floor_layout:1,info_floor_addr_level:1,houseList_item_attrs_area:1,houseList_item_community:1 ,houseList_item_section:1,houseList_item_address:1,price:1,unitprice:1},{ name : "key_duplicate" ,unique : true, background: true})
          db.sale_house.createIndex({info_floor_exp:1}, {background: true})
          """
 
@@ -468,11 +475,10 @@ while first_Row <  total_Rows:
   time.sleep(random.randrange(1, 3, 1))
   print('pages:',first_Row, 'total:',total_Rows, 'done')
 
-
   first_Row += 30
 
 
-  time.sleep(random.randrange(1, 5, 1))
+  time.sleep(random.randrange(5, 10, 1))
   #idx_next = pages.find("a",{"class":"pageNext"})
 
 web.quit()
