@@ -13,6 +13,7 @@ from pymongo.errors import BulkWriteError
 import datetime
 from fake_useragent import UserAgent
 from dateutil.relativedelta import relativedelta
+import numpy as np
 
 
 
@@ -21,7 +22,9 @@ start_time = datetime.datetime.now()
 
 
 short_url = 'https://www.sinyi.com.tw'
-sale_url ='https://www.sinyi.com.tw/buy/list/500-1500-price/dalou-huaxia-type/plane-auto-mix-mechanical-firstfloor-tower-other-yesparking/1-30-year/3-3-roomtotal/Taichung-city/406-407-408-zip/Taipei-R-mrtline/03-mrt/yesparking/uniprice-asc/uniprice-asc/price-asc/index'
+#sale_url ='https://www.sinyi.com.tw/buy/list/500-2000-price/dalou-huaxia-type/plane-auto-mix-mechanical-firstfloor-tower-other-yesparking/0-20-year/3-3-roomtotal/Taichung-city/406-407-408-zip/Taipei-R-mrtline/03-mrt/yesparking/uniprice-asc/uniprice-asc/price-asc/index'
+
+sale_url = 'https://www.sinyi.com.tw/buy/list/500-2000-price/dalou-huaxia-type/0-20-year/3-3-roomtotal/Taichung-city/406-407-408-zip/Taipei-R-mrtline/03-mrt/uniprice-asc/uniprice-asc/price-asc/1'
 #sale_url ='https://www.sinyi.com.tw/buy/list/500-1500-price/dalou-huaxia-type/plane-auto-mix-mechanical-firstfloor-tower-other-yesparking/1-30-year/3-3-roomtotal/Taichung-city/407-zip/Taipei-R-mrtline/03-mrt/yesparking/uniprice-asc/price-asc/index'
 ###　section　西屯區:406 北屯:407 南屯:408
 ### label 車位:7 陽台:9
@@ -32,6 +35,7 @@ options = webdriver.ChromeOptions()
 options.add_argument("--headless")
 options.add_argument('--disable-dev-shm-usage')
 options.add_argument("--no-sandbox")
+options.add_argument("--disable-gpu")
 web = webdriver.Chrome(options=options)
 
 
@@ -369,6 +373,19 @@ def house_search(short_url,sale_url) :
 #dicct = {"$or" : [  {"info_floor_exp":  {"$lte" : datetime.date.today().strftime('%Y%m%d') } }, {"info_floor_exp" : {"$eq": None } } ] }
 #delete_many_mongo_db('591','sale_house',dicct)
 
+### cal day 
+today = datetime.date.today().strftime('%Y%m%d')
+
+cal_date = datetime.date.today() + relativedelta(months= -1)
+iso_date_str = datetime.datetime.strftime( cal_date,'%Y-%m-%d' )+ "T00:00:00"
+_iso_date  =  datetime.datetime.strptime(iso_date_str, '%Y-%m-%dT%H:%M:%S')
+
+
+### delete Expired data or null  or long days( 2 months)
+#dicct = {"$or" : [  {"info_floor_exp":  {"$lte" : datetime.date.today().strftime('%Y%m%d') } }, {"info_floor_exp" : {"$eq": None } } ] }
+dicct = {"$or" : [  {"info_floor_exp":  {"$lte" : today } } ,{"last_modify" : {"$lte" : _iso_date } }] }
+delete_many_mongo_db('sinyi','sale_house',dicct)
+
 
 web.get(sale_url)
 time.sleep(random.randrange(3, 5, 1))
@@ -376,23 +393,33 @@ time.sleep(random.randrange(3, 5, 1))
 soup_next_pages = BeautifulSoup(web.page_source  , "html.parser")
 
 
+
 for pages in soup_next_pages.find_all("ul",{"class":"pagination"},limit=1) :
-    for page_num in pages.find_all("a",{"class":"pageLinkClassName"}) :
+  for li_class in pages.find_all("li",{"class":re.compile("^pageClassName")} ) :
+    for page_num in li_class.find_all("a",{"class":"pageLinkClassName"}) :
+        
+        pages = page_num.get_text() 
 
-        page_url = sale_url.replace('index',page_num.get_text())
+        if pages == 1 :
 
+             page_url = sale_url
+
+        else :
+
+             page_url = sale_url.replace('price-asc/1', 'price-asc/' + pages)
+       
+        #print('page_url:', page_url)
 
         match_row = house_search(short_url,page_url)
 
         time.sleep(random.randrange(1, 2, 1))
+        
 
         records = match_row.copy()
-     
+        ### vaild records.dropn no empty
+        records.dropna(inplace=True)
+         
         if not records.empty :
-     
-           ### delete Expired data
-           dicct = {"$or" : [  {"info_floor_exp":  {"$lte" : datetime.date.today().strftime('%Y%m%d') } }, {"info_floor_exp" : {"$eq": None } } ] }
-           delete_many_mongo_db('sinyi','sale_house',dicct)       
       
            records["last_modify"]= datetime.datetime.now()
            records =records.to_dict(orient='records')
@@ -403,7 +430,7 @@ for pages in soup_next_pages.find_all("ul",{"class":"pagination"},limit=1) :
                 db.sale_house.createIndex({houseList_item_attrs_shape:1,info_floor_layout:1,info_floor_addr_level:1,houseList_item_attrs_area:1,houseList_item_attrs_mainarea:1,houseList_item_attrs_houseage:1,houseList_item_community:1 ,houseList_item_section:1,houseList_item_address:1,price:1,unitprice:1},{ name : "key_duplicate" ,unique : true, background: true})
                 db.sale_house.createIndex({info_floor_exp:1}, {background: true})
                 """
-      
+                ### vaild records.dropn no empty
                 insert_many_mongo_db('sinyi','sale_house',records)
       
                 #dicct = {"info_floor_exp" : {"$eq": None } }
@@ -415,13 +442,17 @@ for pages in soup_next_pages.find_all("ul",{"class":"pagination"},limit=1) :
       
       
            time.sleep(random.randrange(1, 3, 1))
-           print('pages:',page_num.get_text())
+           print('pages:',pages)
 
 
       
  
 web.quit()
 
+
+### delete Expired data or null
+dicct = {"info_floor_exp" : {"$eq": None } }
+delete_many_mongo_db('sinyi','sale_house',dicct)
 
 end_time = datetime.datetime.now()
 print('Duration: {}'.format(end_time - start_time))

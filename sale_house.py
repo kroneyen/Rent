@@ -12,13 +12,14 @@ from pymongo import MongoClient
 from pymongo.errors import BulkWriteError
 import datetime
 from fake_useragent import UserAgent
+from dateutil.relativedelta import *
 
 
 start_time = datetime.datetime.now()
 
 
 short_url = 'https://sale.591.com.tw'
-sale_url ='https://sale.591.com.tw/?shType=list&regionid=8&section=104,103,105&price=500$_2000$&pattern=3,4&label=7,9&houseage=0_15$'
+sale_url ='https://sale.591.com.tw/?shType=list&regionid=8&section=104,103,105&price=500$_2000$&pattern=3,4&label=7,9&houseage=0_20$'
 ###　section　西屯區:104 北屯:102 南屯:105
 ### label 車位:7 陽台:9
 
@@ -27,8 +28,10 @@ options = webdriver.ChromeOptions()
 options.add_argument("--headless")
 options.add_argument('--disable-dev-shm-usage')
 options.add_argument("--no-sandbox")
+options.add_argument("--disable-gpu")
 web = webdriver.Chrome(options=options)
 
+user_agent = UserAgent()
 
 """
 pool = redis.ConnectionPool(host='localhost', port=6379, decode_responses=True)
@@ -82,7 +85,7 @@ def delete_many_mongo_db(_db,_collection,_values):
 
 def house_detail(detail_url):
 
-       user_agent = UserAgent()                                                                                
+       #user_agent = UserAgent()                                                                                
                                                                                                           
        """                                                                                                     
        headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_1\                                  
@@ -154,6 +157,26 @@ def getList(dict):
         list.append(key)
 
     return list
+
+
+def community_houseage(houseList_item_community_link):
+
+    """
+    headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_1\
+    0_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.5304.107 Safari/537.36'}
+    """
+
+    res = requests.get(houseList_item_community_link , headers={ 'user-agent': user_agent.random })
+
+    age =None
+    soup_detail = BeautifulSoup(res.text  , "html.parser")
+    for items in soup_detail.find_all("div",{"class": "overview-container"} , limit =1) :
+        for detail_age in items.find_all("ul",{"class": "detail-info"} , limit =1) :
+            age = detail_age.find("p").get_text()
+
+    return  age
+
+
 
 
 def house_search(short_url,sale_url) :
@@ -308,6 +331,11 @@ def house_search(short_url,sale_url) :
 
              houseList_item_community_link.append(link[0].get('href'))
 
+             if houseList_item_attrs_houseage[-1] == "不詳" :
+                age = community_houseage(link[0].get('href'))
+                ### replace list last row data
+                houseList_item_attrs_houseage[-1] = age
+
 
            item_span_all.append('houseList_item_community_link')
 
@@ -416,12 +444,18 @@ for pages in soup_next_pages.find_all("div",{"class":"pages"}) :
      total_Rows = int(last_page['data-total'])
 
 
+### cal day 
 today = datetime.date.today().strftime('%Y%m%d')
 
+cal_date = datetime.date.today() + relativedelta(months= -1)
+iso_date_str = datetime.datetime.strftime( cal_date,'%Y-%m-%d' )+ "T00:00:00"
+_iso_date  =  datetime.datetime.strptime(iso_date_str, '%Y-%m-%dT%H:%M:%S')
 
 
-### delete Expired data or null 
-dicct = {"$or" : [  {"info_floor_exp":  {"$lte" : datetime.date.today().strftime('%Y%m%d') } }, {"info_floor_exp" : {"$eq": None } } ] }
+
+### delete Expired data or null  or long days( 2 months)
+#dicct = {"$or" : [  {"info_floor_exp":  {"$lte" : datetime.date.today().strftime('%Y%m%d') } }, {"info_floor_exp" : {"$eq": None } } ] }
+dicct = {"$or" : [  {"info_floor_exp":  {"$lte" : today } } ,{"last_modify" : {"$lte" : _iso_date } }] }
 delete_many_mongo_db('591','sale_house',dicct)
 #total_Rows= 61
 
@@ -441,6 +475,8 @@ while first_Row <  total_Rows:
 
   #print('row_data:',match_row)
   records = match_row.copy()
+  ### vaild records.dropn no empty 
+  records.dropna(inplace=True)
   
   if not records.empty : 
 
@@ -451,6 +487,7 @@ while first_Row <  total_Rows:
     #delete_many_mongo_db('591','sale_house',dicct)       
 
     records["last_modify"]= datetime.datetime.now()
+    #records.dropna(inplace=True)
     records =records.to_dict(orient='records')
 
     try :
@@ -458,12 +495,10 @@ while first_Row <  total_Rows:
          """
          db.sale_house.createIndex({houseList_item_attrs_shape:1,info_floor_layout:1,info_floor_addr_level:1,houseList_item_attrs_area:1,houseList_item_community:1 ,houseList_item_section:1,houseList_item_address:1,price:1,unitprice:1},{ name : "key_duplicate" ,unique : true, background: true})
          db.sale_house.createIndex({info_floor_exp:1}, {background: true})
+         db.sale_house.createIndex({info_floor_addr_level:1,houseList_item_community:1 ,houseList_item_section:1,price:1},{ name : "key_duplicate" ,unique : true, background: true})
          """
-
          insert_many_mongo_db('591','sale_house',records)
 
-         #dicct = {"info_floor_exp" : {"$eq": None } }
-         #delete_many_mongo_db('591','sale_house',dicct)
     
 
     except BulkWriteError as e:

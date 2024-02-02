@@ -12,7 +12,7 @@ from pymongo import MongoClient
 from pymongo.errors import BulkWriteError
 import datetime
 from fake_useragent import UserAgent
-
+from dateutil.relativedelta import relativedelta
 
 start_time = datetime.datetime.now()
 
@@ -520,11 +520,23 @@ today = datetime.date.today().strftime('%Y%m%d')
 """
 
 
-### delete Expired data or null 
-dicct = {"$or" : [  {"info_floor_exp":  {"$lte" : datetime.date.today().strftime('%Y%m%d') } }, {"info_floor_exp" : {"$eq": None } } ] }
+### cal day 
+today = datetime.date.today().strftime('%Y%m%d')
+
+cal_date = datetime.date.today() + relativedelta(months= -1)
+iso_date_str = datetime.datetime.strftime( cal_date,'%Y-%m-%d' )+ "T00:00:00"
+_iso_date  =  datetime.datetime.strptime(iso_date_str, '%Y-%m-%dT%H:%M:%S')
+
+
+### delete Expired data or null  or long days( 2 months)
+#dicct = {"$or" : [  {"info_floor_exp":  {"$lte" : datetime.date.today().strftime('%Y%m%d') } }, {"info_floor_exp" : {"$eq": None } } ] }
+dicct = {"$or" : [  {"info_floor_exp":  {"$lte" : today } } ,{"last_modify" : {"$lte" : _iso_date } }] }
+
 delete_many_mongo_db('591','market_house',dicct)
-#market_list = ['104','103','105']
-market_list = ['104']
+market_list = ['104','103','105']
+#market_list = ['103','105']
+#community_max = 0
+
 
 for market_idx in market_list :
 
@@ -538,24 +550,28 @@ for market_idx in market_list :
    
    ### cal max items
    soup_mark = BeautifulSoup(web.page_source  , "html.parser")
+
+   for  section_item in soup_mark.find_all("section",{"class":"list-container"} ,limit=1) : 
+        #for h2_class in soup_mark.find_all("h2",{"class":"total"} ,limit =1 ) :
+        for h2_class in section_item.find_all("h2",{"class":"total"} ,limit =1 ) :
    
-   for h2_class in soup_mark.find_all("h2",{"class":"total"} ,limit =1 ) :
-   
-       community_max = int(h2_class.find('span').get_text())
-   print('section:',market_idx)   
-   print('community_max:' ,community_max)
+            community_max = int(h2_class.find('span').get_text())
+
+   #print('section:',market_idx)   
+    
+   #print('community_max:' ,community_max)
+     
    ### scroll all items
+
    scroll_wrap('community',web,community_max)
-   
    #time.sleep(random.randrange(1,3, 1))
    
    ###reload data
    soup_mark = BeautifulSoup(web.page_source  , "html.parser")
-   
    community_num = 1
    item_max = 0
    last_item_max = 0
-   
+    
    ### community link
    for idx in  soup_mark.find_all("section",{"class":"list-container"}) :
    
@@ -574,7 +590,7 @@ for market_idx in market_list :
             #community_num +=1         
             try:
                  match_row , item_max,last_item_max = community_search(link.get('href'))
-                 print( 'community_{} : {} , itmes: {} , last_item_max:{} '.format(community_num,community_name,item_max,last_item_max))
+                 print( '{} - community_{} : {} , itmes: {} , last_item_max:{} '.format( market_idx ,community_num,community_name,item_max,last_item_max))
    
             except BulkWriteError as e:
                  print(e.details)
@@ -584,6 +600,8 @@ for market_idx in market_list :
             #match_row ,sale_times = community_search(link.get('href'))
             #print( 'community_{} : {}  itmes: {}'.format(community_num,community_name,sale_times))
             records = match_row.copy()
+            ### vaild records.dropn no empty
+            records.dropna(inplace=True)
    
    
             if not records.empty :
@@ -595,8 +613,6 @@ for market_idx in market_list :
                 #delete_many_mongo_db('591','sale_house',dicct)       
    
                 records["last_modify"]= datetime.datetime.now()
-                ###delete null data
-                records.dropna()
                 records =records.to_dict(orient='records')
    
                 try :
@@ -606,7 +622,8 @@ for market_idx in market_list :
                      db.sale_house.createIndex({info_floor_exp:1}, {background: true})
                      db.market_house.createIndex({info_floor_addr_level:1,houseList_item_community:1 ,houseList_item_section:1,price:1},{ name : "key_duplicate" ,unique : true, background: true})
                      """
-   
+                     ### vaild records.dropn no empty
+                     #records =records.to_dict(orient='records')    
                      insert_many_mongo_db('591','market_house',records)
    
                      #dicct = {"info_floor_exp" : {"$eq": None } }
@@ -616,8 +633,14 @@ for market_idx in market_list :
                 except BulkWriteError as e:
                        pass ## when duplicate date riseup error  by pass 
    
-   
-            time.sleep(random.randrange(1, 2, 1))
+            ### for each community  extend wait time 
+            if last_item_max > 100 :
+
+                time.sleep(random.randrange(10, 20, 1))
+            else :
+
+                time.sleep(random.randrange(5, 10, 1))
+
             community_num +=1
    ### for loop section
    time.sleep(random.randrange(30, 60, 10))
@@ -626,10 +649,6 @@ for market_idx in market_list :
 web.quit()
 
 
-
-
-
-web.quit()
 
 
 

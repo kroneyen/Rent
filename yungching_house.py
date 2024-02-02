@@ -23,7 +23,7 @@ start_time = datetime.datetime.now()
 
 short_url = 'https://buy.yungching.com.tw'
 #sale_url='https://buy.yungching.com.tw/region/住宅_p/台中市-西屯區_c/500-1500_price/3-4_rm/華廈,電梯大廈_type?pg=1'
-sale_url='https://buy.yungching.com.tw/region/住宅_p/台中市-北屯區,台中市-西屯區,台中市-南屯區_c/500-1500_price/1-30_age/3-4_rm/華廈,電梯大廈_type/y_park?pg=1'
+sale_url='https://buy.yungching.com.tw/region/住宅_p/台中市-北屯區,台中市-西屯區,台中市-南屯區_c/500-2000_price/0-15_age/3-4_rm/華廈,電梯大廈_type/y_park?pg=1'
 ###　section　西屯區:104 北屯:102 南屯:105
 ### label 車位:7 陽台:9
 
@@ -165,6 +165,14 @@ def house_detail(detail_url):
         for link_attr in ul_attr.find_all("a",limit =1) : 
           ### community_link
           detail_community_link = "http:" + link_attr.get("href")
+
+          if  detail_houseage == "0.0年 " :
+
+             detail_houseage = community_houseage(detail_community_link)
+
+             if detail_houseage == "-- 年" : 
+
+                detail_houseage = "0年"
    
           ### community
           detail_community = link_attr.get_text()
@@ -181,7 +189,8 @@ def house_detail(detail_url):
         for li_attr in ul_attr.find_all("li",{"class":"right"},limit =1) :
            for ul_attr in li_attr.find_all("ul",{"class":"detail-list-lv2"},limit =1) :
               detail_mainarea = ul_attr.find('li').get_text().replace('主建物小計','主建')     
-        
+
+
    
    
      return detail_title ,detail_houseid ,detail_addr, detail_section, detail_community_link ,detail_community  , detail_price ,detail_layout ,detail_level ,detail_area, detail_mainarea ,detail_shape ,detail_houseage ,detail_unitprice ,detail_tags
@@ -194,6 +203,23 @@ def getList(dict):
         list.append(key)
 
     return list
+
+
+def community_houseage(houseList_item_community_link):
+
+  headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_1\
+  0_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.5304.107 Safari/537.36'}
+
+  res = requests.get(houseList_item_community_link, headers=headers )
+
+  age_list = []
+  soup_detail = BeautifulSoup(res.text  , "html.parser")
+  for items in soup_detail.find_all("a",{"class": "building-detail-block gtmPushEvent"} , limit =1) :
+    for detail_list in items.find_all("ul",{"class": "building-detail-list"} , limit =1) :
+       for items in detail_list.find_all("li"):
+         age_list.append(items.get_text())
+
+  return  age_list[-1].split("屋齡約 ")[1]
 
 
 
@@ -358,6 +384,23 @@ def house_search(short_url,sale_url) :
 #dicct = {"$or" : [  {"info_floor_exp":  {"$lte" : datetime.date.today().strftime('%Y%m%d') } }, {"info_floor_exp" : {"$eq": None } } ] }
 #delete_many_mongo_db('591','sale_house',dicct)
 
+### delete Expired data
+### cal day 
+today = datetime.date.today().strftime('%Y%m%d')
+
+cal_date = datetime.date.today() + relativedelta(months= -1)
+iso_date_str = datetime.datetime.strftime( cal_date,'%Y-%m-%d' )+ "T00:00:00"
+_iso_date  =  datetime.datetime.strptime(iso_date_str, '%Y-%m-%dT%H:%M:%S')
+
+
+### delete Expired data or null  or long days( 2 months)
+#dicct = {"$or" : [  {"info_floor_exp":  {"$lte" : datetime.date.today().strftime('%Y%m%d') } }, {"info_floor_exp" : {"$eq": None } } ] }
+dicct = {"$or" : [  {"info_floor_exp":  {"$lte" : today } } ,{"last_modify" : {"$lte" : _iso_date } }] }
+
+delete_many_mongo_db('yungching','sale_house',dicct)
+
+
+
 
 web.get(sale_url)
 time.sleep(random.randrange(3, 5, 1))
@@ -388,14 +431,11 @@ while first <= buy_page_last :
         #match_row = pd.DataFrame()
 
         records = match_row.copy()
-   
+        ### vaild records.dropn no empty
+        records.dropna(inplace=True) 
         #print('records',records.info())  
         if not records.empty :
      
-           ### delete Expired data
-           dicct = {"$or" : [  {"info_floor_exp":  {"$lte" : datetime.date.today().strftime('%Y%m%d') } }, {"info_floor_exp" : {"$eq": None } } ] }
-           delete_many_mongo_db('yungching','sale_house',dicct)       
-      
            records["last_modify"]= datetime.datetime.now()
            records =records.to_dict(orient='records')
       
@@ -421,6 +461,10 @@ while first <= buy_page_last :
         time.sleep(random.randrange(1, 3, 1))
 
 web.quit()
+
+### delete Expired data or null
+dicct = {"info_floor_exp" : {"$eq": None } }
+delete_many_mongo_db('yungching','sale_house',dicct)
 
 
 end_time = datetime.datetime.now()

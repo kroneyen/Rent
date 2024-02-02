@@ -22,7 +22,9 @@ start_time = datetime.datetime.now()
 
 
 short_url = 'https://www.century21.com.tw/'
-sale_url ='https://www.century21.com.tw/buy/taichung-city/407_406_408/hugh-rise_mid-rise?priceFilter=500-1500&houseShape=equal-3_equal-4&houseAge=1-30&%3Fpage=1&page=1'
+#sale_url='https://www.century21.com.tw/buy/taichung-city/406_407_408/all-category?priceFilter=1-2000&houseShape=equal-3_equal-4&houseAge=1-20&page=1'
+sale_url='https://www.century21.com.tw/buy/taichung-city/407_406_408/hugh-rise_mid-rise?priceFilter=500-2000&houseShape=equal-3_equal-4&houseAge=1-20&%3Fpage=1&page=1'
+
 ###　section　西屯區:104 北屯:102 南屯:105
 ### label 車位:7 陽台:9
 
@@ -234,12 +236,13 @@ def house_search(short_url,sale_url) :
                    ### detail_url
                    detail_url_list.append(detail_url)
                    ### show detail
-                
                    detail_addr,detail_section, detail_price ,detail_layout ,detail_level ,detail_area, detail_mainarea ,detail_shape ,detail_houseage ,detail_unitprice,detail_tags = house_detail(detail_url)
                    ### Ttile
                    detail_title= link.get_text()
                    houseList_item_title.append(detail_title)
-                   
+                   #print('detail_title:' , detail_title)
+                   #print('detail_url:',detail_url)
+ 
                 
                    ### houseid
                    detail_houseid = detail_url.split('buypage/',1)[1]
@@ -316,14 +319,14 @@ def house_search(short_url,sale_url) :
             'unitprice' : unitprice,
             'tags' : tags }
 
-
+    """
     keylist = getList(row_data)
 
     for key in keylist :
       print(key , ':',len(row_data.get(key)) ,';', row_data.get(key))
-
+    """
     df = pd.DataFrame(row_data)
-
+    #print(df)
     return df
 
 
@@ -336,11 +339,10 @@ def house_search(short_url,sale_url) :
 
 web.get(sale_url)
 time.sleep(random.randrange(3, 5, 1))
-
 soup_next_pages = BeautifulSoup(web.page_source  , "html.parser")
 
 
-## get last page
+"""
 for pages in soup_next_pages.find_all("div",{"id":"pagination"},limit=1) :
   for page_num in pages.find_all("a",{"class":"page-link"}) :
 
@@ -349,6 +351,37 @@ for pages in soup_next_pages.find_all("div",{"id":"pagination"},limit=1) :
 
 
 first =1
+buy_page_last =1
+"""
+
+buy_page_last =1
+
+
+for pages in soup_next_pages.find_all("div",{"id":"pagination"},limit=1) :
+  for pages_li in  pages.find_all("li",{"class" :"page-item"}) :
+     for page_num in pages_li.find_all("a",{"class":"page-link"}) :
+
+       if not page_num.get("rel") :
+         buy_page_last = int(page_num.get_text())
+
+
+first =1
+
+
+### delete Expired data
+### cal day 
+today = datetime.date.today().strftime('%Y%m%d')
+
+cal_date = datetime.date.today() + relativedelta(months= -1)
+iso_date_str = datetime.datetime.strftime( cal_date,'%Y-%m-%d' )+ "T00:00:00"
+_iso_date  =  datetime.datetime.strptime(iso_date_str, '%Y-%m-%dT%H:%M:%S')
+
+
+### delete Expired data or null  or long days( 2 months)
+#dicct = {"$or" : [  {"info_floor_exp":  {"$lte" : datetime.date.today().strftime('%Y%m%d') } }, {"info_floor_exp" : {"$eq": None } } ] }
+dicct = {"$or" : [  {"info_floor_exp":  {"$lte" : today } } ,{"last_modify" : {"$lte" : _iso_date } }] }
+delete_many_mongo_db('century21','sale_house',dicct)
+
 
 
 ### page of buy_page_last
@@ -359,6 +392,7 @@ while first <= buy_page_last :
            page_url = sale_url
 
         else :
+           #page_url = sale_url.replace('&page=1','&page='+str(first))
            page_url = sale_url.replace('Fpage=1&page=1','Fpage=1&page='+str(first))
 
 
@@ -366,14 +400,13 @@ while first <= buy_page_last :
         match_row = house_search(short_url,page_url)
         #match_row = pd.DataFrame()
         records = match_row.copy()
+        ### vaild records.dropn no empty
+        #print('records:',records.info())
+        #### records.dropna(inplace=True)  ### houseList_item_community is null
    
         #print('records',records.info())  
         if not records.empty :
      
-           ### delete Expired data
-           dicct = {"$or" : [  {"info_floor_exp":  {"$lte" : datetime.date.today().strftime('%Y%m%d') } }, {"info_floor_exp" : {"$eq": None } } ] }
-           delete_many_mongo_db('century21','sale_house',dicct)       
-      
            records["last_modify"]= datetime.datetime.now()
            records =records.to_dict(orient='records')
       
@@ -381,6 +414,7 @@ while first <= buy_page_last :
       
                # db.sale_house.createIndex({houseList_item_attrs_shape:1,info_floor_layout:1,info_floor_addr_level:1,houseList_item_attrs_area:1,houseList_item_attrs_mainarea:1,houseList_item_attrs_houseage:1,houseList_item_community:1 ,houseList_item_section:1,houseList_item_address:1,price:1,unitprice:1},{ name : "key_duplicate" ,unique : true, background: true})
                 #db.sale_house.createIndex({info_floor_exp:1}, {background: true})
+
       
                 insert_many_mongo_db('century21','sale_house',records)
       
@@ -401,6 +435,9 @@ while first <= buy_page_last :
 
 web.quit()
 
+### delete Expired data or null
+dicct = {"info_floor_exp" : {"$eq": None } }
+delete_many_mongo_db('century21','sale_house',dicct)
 
 end_time = datetime.datetime.now()
 print('Duration: {}'.format(end_time - start_time))
