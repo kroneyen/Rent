@@ -194,26 +194,26 @@ def sale_house_line(_today,_db,_section):
     """
     #cal_date_str = '2023-07-20' + "T00:00:00"
     #lt_cal_date_str = '2023-07-21' + "T00:00:00"
+    ### str + "T00:00:00"
     cal_date_str = _today + "T00:00:00"
+    ### str trans to date type 
     cal_date = datetime.datetime.strptime(cal_date_str, '%Y-%m-%dT%H:%M:%S')
     #cal_date_lt = datetime.datetime.strptime(lt_cal_date_str, '%Y-%m-%dT%H:%M:%S')
     exp_date =  datetime.date.today().strftime("%Y%m%d")
     #exp_date = '20230720'
      
-
+    #print('cal_date:',cal_date,type(cal_date))
     #cal_date = cal_date - datetime.timedelta(days =1)
     #print('cal_date:',cal_date)
     dicct= {"last_modify":  {"$gte" : cal_date},"houseList_item_section" : _section ,"info_floor_exp":{"$gt":exp_date}}
     #dicct= {"last_modify":  {"$gte" : cal_date , "$lt" : cal_date_lt} ,"houseList_item_section" : _section ,"info_floor_exp":{"$gt":exp_date}}
     column= {"_id":0}
     
-    
     mydoc = read_mongo_db(_db,'sale_house',dicct,column) 
     match_row = pd.DataFrame(list(mydoc))
     #rediskeys = str(_today) + '_reurl_lists_sale'
 
     #line_display_list = insert_redis_data(rediskeys,match_row) ##  5rows
-    #print(match_row.info())   
 
     try :
 
@@ -223,11 +223,7 @@ def sale_house_line(_today,_db,_section):
 
          pass
 
-
-    match_row_line = match_row.copy()
-    
-    #print(match_row_line.info())
-    return match_row_line.head(2)
+    return match_row
 
 
 ### main call 
@@ -248,13 +244,17 @@ for section_idx in section_list :
 
        time.sleep(round(random.uniform(0.3, 1.0), 10))
 
-   
+       #print('match_row_line:',match_row_line)
    try :  
       #print(match_row)                                                                                                                                      
       if not match_row_line.empty  :
 
-                match_row = match_row_line.iloc[:,[1,14,18]]
-                match_row.columns=['Title','price','link']
+                match_row = match_row_line.iloc[:,[1,14,18,9]]
+                match_row.columns=['Title','price','link','houseage']
+                ### sort by houseage,price
+                match_row = match_row.sort_values(by=['houseage','price'],ignore_index = True)
+                ### display rows
+                match_row = match_row.head(30)
 
                 line_key_list =[]
            
@@ -270,11 +270,10 @@ for section_idx in section_list :
                         send_line_notify(line_key,msg)
                     #print(match_row.iloc[match_row_index:match_row_index+5,:].to_string(index = False))
                     time.sleep(random.randrange(1, 3, 1))                   
-   
+
       time.sleep(random.randrange(5, 10, 1))
    
    except : 
    	       pass                                                             
-
 
    time.sleep(random.randrange(120, 240, 10)) 
